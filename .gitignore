@@ -1,0 +1,28 @@
+# Nuxt
+.nuxt
+.output
+.data
+.cache
+
+# Node
+node_modules
+.pnpm-store
+
+# Logs
+*.log
+logs
+
+# 本機環境
+.env
+.env.local
+e2e/.env
+
+# Playwright
+playwright-report
+test-results
+
+# Vitest
+coverage
+
+# 系統
+.DS_Store
