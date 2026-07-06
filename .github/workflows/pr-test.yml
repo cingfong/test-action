@@ -10,8 +10,11 @@ env:
   FRONTEND_CONFIG_ENV_NAME: staging # 前端發佈設定檔名稱
 
 jobs:
-  check:
-    name: 程式碼檢查
+  # 單一 job、依序執行：lint → typecheck → 單元測試 → build → E2E。
+  # 好處：checkout / install 只做一次，build 只做一次且由 E2E 直接沿用（preview 僅啟動該產物、不再 build）。
+  # 任一步失敗即整個 job 中止（fail-fast），後面的步驟（含 E2E）不會執行。
+  ci:
+    name: 檢查 → 單元 → E2E（依序）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -45,64 +48,18 @@ jobs:
       - name: 執行類型檢查
         run: pnpm typecheck
 
-  test:
-    name: 單元測試
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-
-      - name: 設定 pnpm store 位置
-        run: pnpm config set store-dir "${{ runner.temp }}/pnpm-store"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: 設定環境設定檔
-        run: |
-          if [ -f .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} ]; then
-            mv .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} .env
-          fi
-
-      - name: 安裝依賴項
-        run: pnpm install --frozen-lockfile
-
       - name: 執行單元測試
         run: pnpm test
-
-  e2e:
-    name: E2E 測試（Playwright）
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v5
-
-      - name: 設定 pnpm store 位置
-        run: pnpm config set store-dir "${{ runner.temp }}/pnpm-store"
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: 設定環境設定檔
-        run: |
-          if [ -f .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} ]; then
-            mv .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} .env
-          fi
-
-      - name: 安裝依賴項
-        run: pnpm install --frozen-lockfile
 
       - name: 安裝 Playwright 瀏覽器（chromium）
         run: pnpm exec playwright install --with-deps chromium
 
+      # 先 build 一次；E2E 由 playwright.config 的 webServer 以 preview 啟動此產物（不再 build）。
+      - name: 建置（供 E2E preview 使用）
+        run: pnpm build
+
       # E2E 打真實 staging API：需在 repo Settings → Secrets 設定 E2E_HSE_ACCOUNT / E2E_HSE_PASSWORD。
-      # playwright.config 的 webServer 會自動以專屬埠 3100 啟動 pnpm dev；config 讀不到 e2e/.env 時回退至環境變數。
+      # CI 下 webServer 以專屬埠 3100 啟動 pnpm preview；config 讀不到 e2e/.env 時回退至環境變數。
       - name: 執行 E2E 測試（Playwright）
         run: pnpm test:e2e
         env:
