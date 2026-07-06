@@ -1,0 +1,132 @@
+name: PR測試流程
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'w*'
+
+env:
+  FRONTEND_CONFIG_ENV_NAME: staging # 前端發佈設定檔名稱
+
+jobs:
+  check:
+    name: 程式碼檢查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+
+      # 將 pnpm store 固定在 workspace 之外。act 容器 HOME 不一致時，store 會落入
+      # 工作目錄，導致 `eslint .` 掃到 store 的 minified JSON 索引檔而誤報；真 GitHub
+      # runner 本來就在 workspace 外，設定此步無副作用。須在 setup-node 前執行，
+      # 才能讓其 `cache: pnpm` 取到正確的 store 路徑。
+      - name: 設定 pnpm store 位置
+        run: pnpm config set store-dir "${{ runner.temp }}/pnpm-store"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: 設定環境設定檔
+        run: |
+          if [ -f .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} ]; then
+            mv .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} .env
+          fi
+
+      - name: 安裝依賴項
+        run: pnpm install --frozen-lockfile
+
+      - name: 執行程式碼檢查
+        run: pnpm lint
+
+      - name: 執行類型檢查
+        run: pnpm typecheck
+
+  test:
+    name: 單元測試
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+
+      - name: 設定 pnpm store 位置
+        run: pnpm config set store-dir "${{ runner.temp }}/pnpm-store"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: 設定環境設定檔
+        run: |
+          if [ -f .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} ]; then
+            mv .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} .env
+          fi
+
+      - name: 安裝依賴項
+        run: pnpm install --frozen-lockfile
+
+      - name: 執行單元測試
+        run: pnpm test
+
+  e2e:
+    name: E2E 測試（Playwright）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v5
+
+      - name: 設定 pnpm store 位置
+        run: pnpm config set store-dir "${{ runner.temp }}/pnpm-store"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: 設定環境設定檔
+        run: |
+          if [ -f .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} ]; then
+            mv .env.${{ env.FRONTEND_CONFIG_ENV_NAME }} .env
+          fi
+
+      - name: 安裝依賴項
+        run: pnpm install --frozen-lockfile
+
+      - name: 安裝 Playwright 瀏覽器（chromium）
+        run: pnpm exec playwright install --with-deps chromium
+
+      # E2E 打真實 staging API：需在 repo Settings → Secrets 設定 E2E_HSE_ACCOUNT / E2E_HSE_PASSWORD。
+      # playwright.config 的 webServer 會自動以專屬埠 3100 啟動 pnpm dev；config 讀不到 e2e/.env 時回退至環境變數。
+      - name: 執行 E2E 測試（Playwright）
+        run: pnpm test:e2e
+        env:
+          E2E_HSE_ACCOUNT: ${{ secrets.E2E_HSE_ACCOUNT }}
+          E2E_HSE_PASSWORD: ${{ secrets.E2E_HSE_PASSWORD }}
+          # 以下為非機密、規格固定值；act 與真 GitHub runner 皆無 e2e/.env，故於此注入。
+          E2E_CREATED_ACCOUNT_PASSWORD: abc12345
+          E2E_TEARDOWN_API: https://test-api-game-hub.9821bh121.com/crld/test/remove-agent
+
+      - name: 上傳 Playwright 報告
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
+      # 逐步截圖活文件（captureStep 產出於 e2e/artifacts/）。
+      # 此處以 GitHub Artifact 下載驗證截圖流程；正式專案的「永久保留最新」改推私有 GCS 固定路徑覆蓋。
+      - name: 上傳逐步截圖
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: e2e/artifacts/
+          retention-days: 90 # GitHub Artifact 上限即 90 天
+          if-no-files-found: warn

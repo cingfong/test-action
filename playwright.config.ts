@@ -11,6 +11,7 @@ if (existsSync(envPath)) {
 
 const PORT = 3100
 const BASE_URL = `http://127.0.0.1:${PORT}`
+const isCI = !!process.env.CI
 
 export default defineConfig({
   testDir: './e2e',
@@ -32,11 +33,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  // 自動拉起 Nuxt dev server；用 3100 避開常用的 3000。
+  // 本機用 dev（改動即時反映）；CI 改用已 build 的產物 preview——啟動快、不邊測邊編譯，
+  // 避免 dev 冷編譯逾時（config.webServer timeout）。CI 需先在 workflow 執行 `pnpm build`。
+  // 綁定 127.0.0.1 對齊 BASE_URL，避開 localhost 解析到 IPv6 導致 readiness 檢查等不到的問題。
   webServer: {
-    command: `pnpm dev --port ${PORT}`,
+    command: isCI ? 'pnpm preview' : `pnpm dev --port ${PORT}`,
     url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    reuseExistingServer: !isCI,
+    timeout: 180_000,
+    env: {
+      PORT: String(PORT),
+      NITRO_PORT: String(PORT),
+      HOST: '127.0.0.1',
+      NITRO_HOST: '127.0.0.1',
+    },
   },
 })

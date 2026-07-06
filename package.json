@@ -2,6 +2,7 @@
   "name": "test-action",
   "type": "module",
   "private": true,
+  "packageManager": "pnpm@10.8.1",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
